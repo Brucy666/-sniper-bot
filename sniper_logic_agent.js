@@ -1,15 +1,16 @@
 const axios = require('axios');
 
-const fetchBTCCloses = async (limit = 100) => {
-  const url = 'https://api.binance.com/api/v3/klines?symbol=BTCUSDT&interval=1m&limit=' + limit;
+const url = 'https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=1&interval=minute';
+
+async function fetchBTCCloses(limit = 100) {
   try {
     const response = await axios.get(url);
-    return response.data.map(c => parseFloat(c[4])).reverse();
+    return response.data.prices.map(c => parseFloat(c[1])).reverse();
   } catch (error) {
     console.error('❌ Error fetching BTC data:', error.message);
     return [];
   }
-};
+}
 
 function calculateRSI(closes, period = 14) {
   if (closes.length < period + 1) return null;
@@ -23,7 +24,7 @@ function calculateRSI(closes, period = 14) {
   const avgLoss = losses / period;
   if (avgLoss === 0) return 100;
   const rs = avgGain / avgLoss;
-  return Math.round(100 - 100 / (1 + rs));
+  return Math.round(100 - (100 / (1 + rs)));
 }
 
 function calculateVWAP(closes) {
@@ -39,13 +40,10 @@ async function checkSniperConditions(channel) {
   const price = closes[0];
   const vwap = calculateVWAP(closes.slice(0, 20));
 
-  if (rsi && rsi <= 30 && price < vwap) {
-    await channel.send(
-      `🎯 **Sniper Setup Detected**\nRSI: ${rsi}\nPrice: $${price}\nVWAP: $${vwap}\n→ RSI < 30 + price under VWAP = possible trap.`
-    );
+  if (rsi <= 30 && price < vwap) {
+    await channel.send(`🎯 **Sniper Setup Detected**\nRSI: ${rsi} | Price: $${price} | VWAP: $${vwap}\n📉 RSI < 30 and price under VWAP — possible liquidity trap.`);
   } else {
-    await channel.send(`🔄 RSI: ${rsi} | Price: $${price} | VWAP: $${vwap} — no sniper setup yet.`);
-    await channel.send("GPT: scan again in 60s");
+    await channel.send(`📉 RSI: ${rsi} | Price: $${price} | VWAP: $${vwap} — no sniper setup yet.\n🧠 GPT: scan again in 60s`);
   }
 }
 
