@@ -1,92 +1,74 @@
-const axios = require('axios');
+import os
+import time
+import requests
+from dotenv import load_dotenv
 
-async function fetchBTCCloses(limit = 100) {
-  const url = `https://finnhub.io/api/v1/crypto/candle?symbol=BINANCE:BTCUSDT&resolution=1&count=${limit}&token=${process.env.FINNHUB_KEY}`;
-  try {
-    const response = await axios.get(url);
-    return response.data.c.reverse();
-  } catch (error) {
-    console.error('❌ Error fetching BTC data:', error.message);
-    return [];
-  }
-}
+load_dotenv()
 
-function calculateRSI(closes, period = 14) {
-  if (closes.length < period + 1) return null;
-  let gains = 0, losses = 0;
+MEXC_API_KEY = os.getenv("MEXC_API_KEY")
+MEXC_API_SECRET = os.getenv("MEXC_API_SECRET")
 
-  for (let i = 1; i <= period; i++) {
-    const delta = closes[i] - closes[i - 1];
-    if (delta >= 0) gains += delta;
-    else losses -= delta;
-  }
+# Base URL for MEXC Spot Market
+BASE_URL = "https://api.mexc.com"
 
-  const avgGain = gains / period;
-  const avgLoss = losses / period;
-  if (avgLoss === 0) return 100;
-  const rs = avgGain / avgLoss;
-  return Math.round(100 - 100 / (1 + rs));
-}
+# Pairs to track
+PAIRS = ["BTCUSDT", "ETHUSDT"]
 
-function calculateVWAP(closes) {
-  const sum = closes.reduce((acc, val) => acc + val, 0);
-  return parseFloat((sum / closes.length).toFixed(2));
-}
+def fetch_order_book(symbol, limit=20):
+    url = f"{BASE_URL}/api/v3/depth"
+    params = {"symbol": symbol, "limit": limit}
+    res = requests.get(url, params=params)
+    return res.json()
 
-async function checkSniperConditions(channel) {
-  const closes = await fetchBTCCloses();
-  if (!closes.length) return;
+def fetch_ticker(symbol):
+    url = f"{BASE_URL}/api/v3/ticker/24hr"
+    params = {"symbol": symbol}
+    res = requests.get(url, params=params)
+    return res.json()
 
-  const rsi = calculateRSI(closes);
-  const price = closes[closes.length - 1];
-  const vwap = calculateVWAP(closes.slice(-20));
+def fetch_trades(symbol, limit=20):
+    url = f"{BASE_URL}/api/v3/trades"
+    params = {"symbol": symbol, "limit": limit}
+    res = requests.get(url, params=params)
+    return res.json()
 
-  if (rsi <= 30 && price < vwap) {
-    await channel.send(`🎯 **Sniper Setup Detected**
-• RSI: ${rsi}
-• Price: $${price}
-• VWAP: $${vwap}
-> RSI < 30 + price under VWAP — possible trap.`);
-  } else {
-    await channel.send(`📉 RSI: ${rsi} | Price: $${price} | VWAP: $${vwap} — no sniper setup yet.\nGPT: scan again in 60s`);
-  }
-}
+def format_wall(orders, side):
+    formatted = []
+    for price, quantity in orders:
+        usdt_val = float(price) * float(quantity)
+        if usdt_val > 50000:  # Filter small noise
+            formatted.append(f"{side} {price} × {round(usdt_val/1000)}k")
+    return formatted
 
-async function handleCustomMessage(message) {
-  const content = message.content.toLowerCase();
+def run_sniper_loop():
+    print("\n🔫 MEXC SNIPER BOT STARTED\n")
 
-  if (content.includes('what') && content.includes('going on')) {
-    await message.reply('🧠 Scanning latest sniper signals... hold tight.');
-    await checkSniperConditions(message.channel);
-  }
+    while True:
+        for pair in PAIRS:
+            try:
+                ob = fetch_order_book(pair)
+                ticker = fetch_ticker(pair)
+                trades = fetch_trades(pair)
 
-  else if (content.includes('scan again')) {
-    await message.reply('🔁 Rechecking RSI/VWAP confluence...');
-    await checkSniperConditions(message.channel);
-  }
+                price = float(ticker['lastPrice'])
+                volume = float(ticker['quoteVolume'])
+                buy_trades = [t for t in trades if not t['isBuyerMaker']]
+                sell_trades = [t for t in trades if t['isBuyerMaker']]
 
-  else if (content.includes('override')) {
-    await message.reply('⚠️ Manual override: forcing sniper scan...');
-    await checkSniperConditions(message.channel);
-  }
+                print(f"\n[SNIPER] {pair}")
+                print(f"📊 Price: {price:.2f} | 24h Vol: {round(volume/1_000_000, 2)}M USDT")
 
-  else if (content.includes('rsi') || content.includes('vwap')) {
-    const closes = await fetchBTCCloses();
-    const rsi = calculateRSI(closes);
-    const price = closes[closes.length - 1];
-    const vwap = calculateVWAP(closes.slice(-20));
-    await message.reply(`🧾 **Market Stats**
-• RSI: ${rsi}
-• Price: $${price}
-• VWAP: $${vwap}`);
-  }
+                walls = format_wall(ob['bids'], '🟢') + format_wall(ob['asks'], '🔴')
+                for wall in walls[:5]:
+                    print(f"   {wall}")
 
-  else {
-    await message.reply('🤖 Command not recognized. Try: `GPT: what’s going on?`, `GPT: scan again`, or `GPT: RSI VWAP now`');
-  }
-}
+                print(f"💥 Buy Trades: {len(buy_trades)} | Sell Trades: {len(sell_trades)}")
+                print("-" * 40)
 
-module.exports = {
-  checkSniperConditions,
-  handleCustomMessage
-};
+            except Exception as e:
+                print(f"[ERROR] {pair}: {str(e)}")
+
+        time.sleep(10)
+
+if __name__ == "__main__":
+    run_sniper_loop()
