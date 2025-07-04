@@ -1,26 +1,21 @@
-require('dotenv').config();
-const { Client, GatewayIntentBits } = require('discord.js');
-const { checkSniperConditions, handleCustomMessage } = require('./sniper_logic_agent');
+// index.js
+const express = require('express');
+const app = express();
+const PORT = process.env.PORT || 3000;
 
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
-  ]
+app.use(express.json());
+
+// Default route
+app.get('/', (req, res) => {
+  res.send('GPT Sniper Terminal is Running');
 });
 
-client.once('ready', () => {
-  console.log(`🚀 GPT Sniper Terminal is Live as ${client.user.tag}`);
+// Example webhook endpoint
+app.post('/webhook', (req, res) => {
+  console.log('Received webhook:', req.body);
+  res.sendStatus(200);
 });
 
-client.on('messageCreate', async (message) => {
-  if (message.author.bot) return;
-
-  const content = message.content.toLowerCase();
-  if (content.startsWith('gpt:')) {
-    await handleCustomMessage(message);
-  }
+app.listen(PORT, () => {
+  console.log(`✅ GPT Sniper Terminal is Live on port ${PORT}`);
 });
-
-client.login(process.env.TOKEN);
