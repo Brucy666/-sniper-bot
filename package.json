@@ -1,0 +1,13 @@
+{
+  "name": "gpt-sniper-bot",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "axios": "^1.10.0",
+    "discord.js": "^14.21.0",
+    "dotenv": "^17.0.1"
+  }
+}
