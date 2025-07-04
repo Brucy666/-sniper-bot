@@ -5,19 +5,20 @@ import requests
 import discord
 from discord.ext import commands
 
-# ENV vars
+# Load environment variables
 MEXC_API_KEY = os.getenv("MEXC_API_KEY")
 MEXC_API_SECRET = os.getenv("MEXC_API_SECRET")
 DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN") or os.getenv("TOKEN")
 DISCORD_CHANNEL_ID = int("".join(filter(str.isdigit, os.getenv("DISCORD_CHANNEL_ID", ""))))
 
-# Discord setup
+# Set up Discord bot
 intents = discord.Intents.default()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Get MEXC orderbook
-def get_mexc_orderbook(symbol="BTC_USDT", limit=20):
+# Fetch MEXC orderbook (correct symbol)
+def get_mexc_orderbook(symbol="BTCUSDT", limit=20):
     url = f"https://api.mexc.com/api/v3/depth?symbol={symbol}&limit={limit}"
+    print(f"🔗 Fetching: {url}")
     try:
         response = requests.get(url)
         response.raise_for_status()
@@ -27,7 +28,7 @@ def get_mexc_orderbook(symbol="BTC_USDT", limit=20):
         print(f"❌ Error fetching orderbook: {e}")
         return None
 
-# Analyze orderbook walls
+# Analyze for sniper-level bid/ask walls
 def analyze_orderbook(data):
     if not data or "bids" not in data or "asks" not in data:
         print("⚠️ Invalid or empty orderbook:", data)
@@ -36,7 +37,7 @@ def analyze_orderbook(data):
     bids = data["bids"]
     asks = data["asks"]
     if not bids or not asks:
-        print("⚠️ No bids or asks found")
+        print("⚠️ No bids or asks found.")
         return None
 
     max_bid = max(bids, key=lambda x: float(x[1]))
@@ -55,7 +56,7 @@ async def send_discord_alert(message):
     if channel:
         await channel.send(message)
     else:
-        print("❌ Channel not found.")
+        print("❌ Discord channel not found. Check your channel ID.")
 
 # Main loop
 @bot.event
@@ -64,7 +65,7 @@ async def on_ready():
     while True:
         try:
             data = get_mexc_orderbook()
-            print("📥 Raw orderbook:", data)
+            print("📥 Raw data:", data)
 
             analysis = analyze_orderbook(data)
             if analysis:
@@ -74,7 +75,7 @@ async def on_ready():
                     f"💚 Max Bid: {analysis['max_bid'][1]} @ {analysis['max_bid'][0]}\n"
                     f"❤️ Max Ask: {analysis['max_ask'][1]} @ {analysis['max_ask'][0]}"
                 )
-                print("📤 Sending alert to Discord...")
+                print("📤 Posting to Discord...")
                 await send_discord_alert(msg)
 
             await asyncio.sleep(60)
