@@ -1,74 +1,63 @@
 import os
 import time
 import requests
-from dotenv import load_dotenv
+import discord
+from discord.ext import commands
 
-load_dotenv()
-
+# ENV VARS
 MEXC_API_KEY = os.getenv("MEXC_API_KEY")
 MEXC_API_SECRET = os.getenv("MEXC_API_SECRET")
+DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN") or os.getenv("TOKEN")  # fallback if named TOKEN
+DISCORD_CHANNEL_ID = int(os.getenv("DISCORD_CHANNEL_ID", "0"))
 
-# Base URL for MEXC Spot Market
-BASE_URL = "https://api.mexc.com"
+# Discord client
+intents = discord.Intents.default()
+bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Pairs to track
-PAIRS = ["BTCUSDT", "ETHUSDT"]
+def get_mexc_orderbook(symbol="BTC_USDT", limit=20):
+    url = f"https://api.mexc.com/api/v3/depth?symbol={symbol}&limit={limit}"
+    response = requests.get(url)
+    data = response.json()
+    return data
 
-def fetch_order_book(symbol, limit=20):
-    url = f"{BASE_URL}/api/v3/depth"
-    params = {"symbol": symbol, "limit": limit}
-    res = requests.get(url, params=params)
-    return res.json()
+def analyze_orderbook(data):
+    bids = data["bids"]
+    asks = data["asks"]
+    max_bid = max(bids, key=lambda x: float(x[1]))
+    max_ask = max(asks, key=lambda x: float(x[1]))
+    price = (float(bids[0][0]) + float(asks[0][0])) / 2
+    return {
+        "price": round(price, 2),
+        "max_bid": max_bid,
+        "max_ask": max_ask
+    }
 
-def fetch_ticker(symbol):
-    url = f"{BASE_URL}/api/v3/ticker/24hr"
-    params = {"symbol": symbol}
-    res = requests.get(url, params=params)
-    return res.json()
+async def send_discord_alert(message):
+    channel = bot.get_channel(DISCORD_CHANNEL_ID)
+    if channel:
+        await channel.send(message)
+    else:
+        print("❌ Channel not found. Check DISCORD_CHANNEL_ID.")
 
-def fetch_trades(symbol, limit=20):
-    url = f"{BASE_URL}/api/v3/trades"
-    params = {"symbol": symbol, "limit": limit}
-    res = requests.get(url, params=params)
-    return res.json()
-
-def format_wall(orders, side):
-    formatted = []
-    for price, quantity in orders:
-        usdt_val = float(price) * float(quantity)
-        if usdt_val > 50000:  # Filter small noise
-            formatted.append(f"{side} {price} × {round(usdt_val/1000)}k")
-    return formatted
-
-def run_sniper_loop():
-    print("\n🔫 MEXC SNIPER BOT STARTED\n")
-
+@bot.event
+async def on_ready():
+    print(f"🤖 Bot connected as {bot.user}")
     while True:
-        for pair in PAIRS:
-            try:
-                ob = fetch_order_book(pair)
-                ticker = fetch_ticker(pair)
-                trades = fetch_trades(pair)
-
-                price = float(ticker['lastPrice'])
-                volume = float(ticker['quoteVolume'])
-                buy_trades = [t for t in trades if not t['isBuyerMaker']]
-                sell_trades = [t for t in trades if t['isBuyerMaker']]
-
-                print(f"\n[SNIPER] {pair}")
-                print(f"📊 Price: {price:.2f} | 24h Vol: {round(volume/1_000_000, 2)}M USDT")
-
-                walls = format_wall(ob['bids'], '🟢') + format_wall(ob['asks'], '🔴')
-                for wall in walls[:5]:
-                    print(f"   {wall}")
-
-                print(f"💥 Buy Trades: {len(buy_trades)} | Sell Trades: {len(sell_trades)}")
-                print("-" * 40)
-
-            except Exception as e:
-                print(f"[ERROR] {pair}: {str(e)}")
-
-        time.sleep(10)
+        try:
+            raw = get_mexc_orderbook()
+            info = analyze_orderbook(raw)
+            msg = (
+                f"📊 **BTC/USDT Sniper Watch**\n"
+                f"Current Price: **{info['price']}**\n"
+                f"💚 Max Bid: {info['max_bid'][1]} @ {info['max_bid'][0]}\n"
+                f"❤️ Max Ask: {info['max_ask'][1]} @ {info['max_ask'][0]}"
+            )
+            print(msg)
+            await send_discord_alert(msg)
+            await asyncio.sleep(60)  # 1-minute loop
+        except Exception as e:
+            print(f"❌ Error: {e}")
+            await asyncio.sleep(10)
 
 if __name__ == "__main__":
-    run_sniper_loop()
+    bot.run(DISCORD_BOT_TOKEN)
