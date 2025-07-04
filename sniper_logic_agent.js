@@ -32,7 +32,7 @@ function calculateVWAP(closes) {
   return parseFloat((sum / closes.length).toFixed(2));
 }
 
-async function checkSniperConditions(channel) {
+async function checkSniperConditions(channel, memory = []) {
   const closes = await fetchBTCCloses();
   if (!closes.length) return;
 
@@ -41,9 +41,19 @@ async function checkSniperConditions(channel) {
   const vwap = calculateVWAP(closes.slice(0, 20));
 
   if (rsi <= 30 && price < vwap) {
-    await channel.send(`🎯 **Sniper Setup Detected**\nRSI: ${rsi} | Price: $${price} | VWAP: $${vwap}\n📉 RSI < 30 and price under VWAP — possible liquidity trap.`);
+    const message = `🎯 **Sniper Setup Detected**\nRSI: ${rsi} | Price: $${price} | VWAP: $${vwap}\n📉 RSI < 30 and price under VWAP — possible liquidity trap.`;
+    await channel.send(message);
+    memory.push({ from: 'bot', content: message, time: Date.now() });
   } else {
-    await channel.send(`📉 RSI: ${rsi} | Price: $${price} | VWAP: $${vwap} — no sniper setup yet.\n🧠 GPT: scan again in 60s`);
+    let context = "";
+    const last = memory[memory.length - 1];
+    if (last && last.content.includes("scan again")) {
+      context = "\n📓 GPT: continuing last scan... no trap yet.";
+    }
+
+    const msg = `📉 RSI: ${rsi} | Price: $${price} | VWAP: $${vwap} — no sniper setup yet.\n🧠 GPT: scan again in 60s${context}`;
+    await channel.send(msg);
+    memory.push({ from: 'bot', content: msg, time: Date.now() });
   }
 }
 
