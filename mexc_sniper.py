@@ -11,11 +11,12 @@ MEXC_API_SECRET = os.getenv("MEXC_API_SECRET")
 DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN") or os.getenv("TOKEN")
 DISCORD_CHANNEL_ID = int("".join(filter(str.isdigit, os.getenv("DISCORD_CHANNEL_ID", ""))))
 
-# Set up Discord bot
+# Discord bot setup with message content intent
 intents = discord.Intents.default()
+intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Fetch MEXC orderbook (correct symbol)
+# Fetch orderbook from MEXC
 def get_mexc_orderbook(symbol="BTCUSDT", limit=20):
     url = f"https://api.mexc.com/api/v3/depth?symbol={symbol}&limit={limit}"
     print(f"🔗 Fetching: {url}")
@@ -28,7 +29,7 @@ def get_mexc_orderbook(symbol="BTCUSDT", limit=20):
         print(f"❌ Error fetching orderbook: {e}")
         return None
 
-# Analyze for sniper-level bid/ask walls
+# Analyze orderbook for sniper setup
 def analyze_orderbook(data):
     if not data or "bids" not in data or "asks" not in data:
         print("⚠️ Invalid or empty orderbook:", data)
@@ -56,9 +57,23 @@ async def send_discord_alert(message):
     if channel:
         await channel.send(message)
     else:
-        print("❌ Discord channel not found. Check your channel ID.")
+        print("❌ Channel not found.")
 
-# Main loop
+# Listen for GPT prompts
+@bot.event
+async def on_message(message):
+    if message.author == bot.user:
+        return
+
+    if message.content.startswith("GPT:"):
+        prompt = message.content.replace("GPT:", "").strip()
+        print(f"🧠 Received GPT prompt: {prompt}")
+        reply = f"🤖 Received: `{prompt}` — reply will be handled in terminal soon."
+        await message.channel.send(reply)
+
+    await bot.process_commands(message)
+
+# On bot ready, start sniper loop
 @bot.event
 async def on_ready():
     print(f"✅ Discord bot connected as {bot.user}")
@@ -84,6 +99,6 @@ async def on_ready():
             print(f"❌ Runtime error: {e}")
             await asyncio.sleep(15)
 
-# Start bot
+# Run the bot
 if __name__ == "__main__":
     bot.run(DISCORD_BOT_TOKEN)
