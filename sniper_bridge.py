@@ -1,15 +1,29 @@
 import json
 import os
+import requests
 from datetime import datetime, timedelta
 import discord
 import asyncio
-from sniper_data import get_bybit_price_vwap
 
 # === Config ===
 MEMORY_FILE = "macro_risk_memory.json"
 STATUS_FILE = "sniper_status.json"
 DISCORD_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
 DISCORD_CHANNEL = "sniper-alerts"
+
+# === VWAP Fetch (Inlined)
+def get_bybit_price_vwap():
+    try:
+        url = "https://api.bybit.com/v2/public/tickers?symbol=BTCUSDT"
+        response = requests.get(url, timeout=5)
+        data = response.json()
+        ticker = data["result"][0]
+        price = float(ticker["last_price"])
+        vwap = float(ticker["prev_price_24h"])  # VWAP proxy
+        return price, vwap
+    except Exception as e:
+        print(f"[VWAP Fetch Error] {e}")
+        return None
 
 # === Macro Memory Reader ===
 def get_macro_risk():
@@ -25,7 +39,6 @@ def get_macro_risk():
             if data["macro_risk_score"] == "🔴 HIGH" and delta > timedelta(minutes=15):
                 print("⏱️ Risk decayed: 🔴 HIGH → 🟡 MEDIUM")
                 data["macro_risk_score"] = "🟡 MEDIUM"
-
             elif data["macro_risk_score"] == "🟡 MEDIUM" and delta > timedelta(minutes=15):
                 print("⏱️ Risk decayed: 🟡 MEDIUM → 🟢 LOW")
                 data["macro_risk_score"] = "🟢 LOW"
@@ -69,6 +82,7 @@ def load_status():
     except:
         return "UNKNOWN"
 
+# === Discord Alert ===
 async def send_discord_alert(message):
     intents = discord.Intents.default()
     client = discord.Client(intents=intents)
@@ -79,7 +93,7 @@ async def send_discord_alert(message):
         if ch:
             await ch.send(message)
         await client.close()
-        await asyncio.sleep(1)  # prevents unclosed connector warning
+        await asyncio.sleep(1)  # prevent warning
 
     await client.start(DISCORD_TOKEN)
 
@@ -88,26 +102,22 @@ base_confidence = 85
 sniper_confidence = base_confidence
 delay_entry = False
 
-# === Load Price + VWAP from Bybit
+# === VWAP/Price Logic
 try:
     result = get_bybit_price_vwap()
-    if result and isinstance(result, tuple):
+    if result:
         price, vwap = result
-        if price is not None and vwap is not None:
-            print(f"📈 Price: {price} | 📊 VWAP: {vwap}")
-            if price > vwap:
-                sniper_confidence += 5
-            elif price < vwap:
-                sniper_confidence -= 5
-        else:
-            print("❌ VWAP or price is None")
-            print("❌ Failed to fetch Bybit VWAP data (invalid format)")
+        print(f"📈 Price: {price} | 📊 VWAP: {vwap}")
+        if price > vwap:
+            sniper_confidence += 5
+        elif price < vwap:
+            sniper_confidence -= 5
     else:
-        print("❌ Failed to fetch Bybit VWAP data (invalid format)")
+        print("❌ Failed to fetch Bybit VWAP data.")
 except Exception as e:
     print(f"❌ Exception during VWAP fetch: {str(e)}")
 
-# === Macro Risk Check ===
+# === Macro Risk Check
 risk = get_macro_risk()
 score = risk["macro_risk_score"]
 tags = risk["macro_risk_tags"]
@@ -119,10 +129,10 @@ if score == "🔴 HIGH":
 elif score == "🟡 MEDIUM":
     sniper_confidence -= 10
 
-# === Print results ===
+# === Output
 print_terminal_overlay(score, tags, updated, base_confidence, sniper_confidence, delay_entry)
 
-# === Alert if status changed ===
+# === Alert if status changes
 new_status = "BLOCKED" if delay_entry else "ALLOWED"
 old_status = load_status()
 
