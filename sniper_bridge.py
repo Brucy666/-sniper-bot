@@ -70,3 +70,6 @@ async def update_memory(update: MemoryUpdate):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("sniper_bridge:app", host="0.0.0.0", port=8000, reload=True)
+    @app.get("/")
+async def root():
+    return {"status": "Sniper Bot Live", "version": "v1.0"}
