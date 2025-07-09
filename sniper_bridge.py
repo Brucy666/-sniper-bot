@@ -1,75 +1,139 @@
-from fastapi import FastAPI, Request
-from pydantic import BaseModel
-import openai
-import os
 import json
-from datetime import datetime
+import os
+from datetime import datetime, timedelta
+import discord
+import asyncio
+from sniper_data import get_bybit_price_vwap
 
-app = FastAPI()
-openai.api_key = os.getenv("OPENAI_API_KEY")
-
+# === Config ===
 MEMORY_FILE = "macro_risk_memory.json"
+STATUS_FILE = "sniper_status.json"
+DISCORD_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
+DISCORD_CHANNEL = "sniper-alerts"
 
-class WebhookPayload(BaseModel):
-    event: str
-    wallet: str = None
-    token: str = None
-    rsi: float = None
-    vwap_status: str = None
-    extra_info: str = None
-
-class MemoryUpdate(BaseModel):
-    score: str
-    tags: list[str]
-
-@app.post("/webhook")
-async def handle_webhook(payload: WebhookPayload):
-    message = f"""
-    Sniper Event Detected:
-    - Event: {payload.event}
-    - Wallet: {payload.wallet}
-    - Token: {payload.token}
-    - RSI: {payload.rsi}
-    - VWAP Status: {payload.vwap_status}
-    - Extra Info: {payload.extra_info or 'None'}
-
-    Based on sniper logic, provide a trade response, confidence score, and next action.
-    """
-
-    client = openai.OpenAI()
-    response = client.chat.completions.create(
-        model="gpt-4o",
-        messages=[
-            {"role": "system", "content": "You are a sniper trade engine."},
-            {"role": "user", "content": message}
-        ]
-    )
-    reply = response.choices[0].message.content
-    return {"status": "received", "gpt_response": reply}
-
-@app.get("/memory_status")
-async def memory_status():
+# === Macro Memory Reader ===
+def get_macro_risk():
     try:
         with open(MEMORY_FILE, "r") as f:
             data = json.load(f)
-        return {"status": "ok", "memory": data}
+
+        if data.get("macro_risk_last_updated"):
+            last = datetime.fromisoformat(data["macro_risk_last_updated"])
+            now = datetime.utcnow()
+            delta = now - last
+
+            if data["macro_risk_score"] == "🔴 HIGH" and delta > timedelta(minutes=15):
+                print("⏱️ Risk decayed: 🔴 HIGH → 🟡 MEDIUM")
+                data["macro_risk_score"] = "🟡 MEDIUM"
+
+            elif data["macro_risk_score"] == "🟡 MEDIUM" and delta > timedelta(minutes=15):
+                print("⏱️ Risk decayed: 🟡 MEDIUM → 🟢 LOW")
+                data["macro_risk_score"] = "🟢 LOW"
+
+        return data
+
     except FileNotFoundError:
-        return {"status": "no_file", "memory": None}
+        print("[⚠️] No macro memory found. Returning default.")
+        return {
+            "macro_risk_score": "🟢 LOW",
+            "macro_risk_tags": [],
+            "macro_risk_last_updated": None
+        }
 
-@app.post("/update_memory")
-async def update_memory(update: MemoryUpdate):
-    data = {
-        "macro_risk_score": update.score,
-        "macro_risk_tags": update.tags,
-        "macro_risk_last_updated": datetime.utcnow().isoformat()
-    }
-    with open(MEMORY_FILE, "w") as f:
-        json.dump(data, f, indent=2)
-    return {"status": "updated", "memory": data}
+# === Sniper Overlay Print ===
+def print_terminal_overlay(score, tags, updated, base_conf, adjusted_conf, delay):
+    print(f"""
+🧠 GPT Macro Memory Loaded
+────────────────────────────
+→ Score        : {score}
+→ Tags         : {tags}
+→ Last Updated : {updated}
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("sniper_bridge:app", host="0.0.0.0", port=8000, reload=True)
-    @app.get("/")
-async def root():
-    return {"status": "Sniper Bot Live", "version": "v1.0"}
+🎯 Sniper Decision Check
+────────────────────────────
+→ Base Confidence     : {base_conf}%
+→ Adjusted Confidence : {adjusted_conf}%
+→ Entry Delayed       : {"❌ No" if not delay else "✅ Yes"}
+→ Macro Overlay       : {"🟢 Clear" if not delay else "⚠️ Risk Pressure Active"}
+""")
+
+# === Status File Logic ===
+def save_status(status):
+    with open(STATUS_FILE, "w") as f:
+        json.dump({"status": status}, f)
+
+def load_status():
+    try:
+        with open(STATUS_FILE, "r") as f:
+            return json.load(f).get("status", "UNKNOWN")
+    except:
+        return "UNKNOWN"
+
+async def send_discord_alert(message):
+    intents = discord.Intents.default()
+    client = discord.Client(intents=intents)
+
+    @client.event
+    async def on_ready():
+        ch = discord.utils.get(client.get_all_channels(), name=DISCORD_CHANNEL)
+        if ch:
+            await ch.send(message)
+        await client.close()
+        await asyncio.sleep(1)  # prevents unclosed connector warning
+
+    await client.start(DISCORD_TOKEN)
+
+# === Core Logic ===
+base_confidence = 85
+sniper_confidence = base_confidence
+delay_entry = False
+
+# === Load Price + VWAP from Bybit
+try:
+    result = get_bybit_price_vwap()
+    if result and isinstance(result, tuple):
+        price, vwap = result
+        if price is not None and vwap is not None:
+            print(f"📈 Price: {price} | 📊 VWAP: {vwap}")
+            if price > vwap:
+                sniper_confidence += 5
+            elif price < vwap:
+                sniper_confidence -= 5
+        else:
+            print("❌ VWAP or price is None")
+            print("❌ Failed to fetch Bybit VWAP data (invalid format)")
+    else:
+        print("❌ Failed to fetch Bybit VWAP data (invalid format)")
+except Exception as e:
+    print(f"❌ Exception during VWAP fetch: {str(e)}")
+
+# === Macro Risk Check ===
+risk = get_macro_risk()
+score = risk["macro_risk_score"]
+tags = risk["macro_risk_tags"]
+updated = risk["macro_risk_last_updated"]
+
+if score == "🔴 HIGH":
+    sniper_confidence -= 25
+    delay_entry = True
+elif score == "🟡 MEDIUM":
+    sniper_confidence -= 10
+
+# === Print results ===
+print_terminal_overlay(score, tags, updated, base_confidence, sniper_confidence, delay_entry)
+
+# === Alert if status changed ===
+new_status = "BLOCKED" if delay_entry else "ALLOWED"
+old_status = load_status()
+
+if new_status != old_status:
+    print(f"🔁 Sniper status changed: {old_status} → {new_status}")
+    save_status(new_status)
+
+    alert_message = f"""
+{'⚠️ **Sniper Entry Blocked**' if new_status == 'BLOCKED' else '🔓 **Sniper Entry Unlocked**'}
+→ Macro Risk: {score}
+→ Confidence: {sniper_confidence}%
+→ {'Sniper suppressed by GPT defense layer' if new_status == 'BLOCKED' else 'All systems rearmed ✅'}
+"""
+    asyncio.run(send_discord_alert(alert_message))
