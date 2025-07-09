@@ -3,4 +3,4 @@ uvicorn
 fastapi
 openai>=1.0.0
 discord.py
-import requests
+
