@@ -6,7 +6,7 @@ import json
 from datetime import datetime
 
 app = FastAPI()
-client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 MEMORY_FILE = "macro_risk_memory.json"
 
@@ -37,15 +37,15 @@ async def handle_webhook(payload: WebhookPayload):
     """
 
     client = openai.OpenAI()
-response = client.chat.completions.create(
-    model="gpt-4o",
-    messages=[
-        {"role": "system", "content": "You are a sniper trade engine."},
-        {"role": "user", "content": message}
-    ]
-)
-reply = response.choices[0].message.content
-return {"status": "received", "gpt_response": reply}
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[
+            {"role": "system", "content": "You are a sniper trade engine."},
+            {"role": "user", "content": message}
+        ]
+    )
+    reply = response.choices[0].message.content
+    return {"status": "received", "gpt_response": reply}
 
 @app.get("/memory_status")
 async def memory_status():
@@ -66,3 +66,7 @@ async def update_memory(update: MemoryUpdate):
     with open(MEMORY_FILE, "w") as f:
         json.dump(data, f, indent=2)
     return {"status": "updated", "memory": data}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("sniper_bridge:app", host="0.0.0.0", port=8000, reload=True)
