@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from pydantic import BaseModel
 import openai
 import os
@@ -43,6 +43,7 @@ async def handle_webhook(payload: WebhookPayload):
             {"role": "user", "content": message}
         ]
     )
+
     reply = response.choices[0].message.content
     return {"status": "received", "gpt_response": reply}
 
@@ -65,7 +66,3 @@ async def update_memory(update: MemoryUpdate):
     with open(MEMORY_FILE, "w") as f:
         json.dump(data, f, indent=2)
     return {"status": "updated", "memory": data}
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("sniper_bridge:app", host="0.0.0.0", port=8000, reload=True)
