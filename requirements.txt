@@ -1,6 +1,3 @@
-fastapi
-uvicorn
-fastapi
-openai>=1.0.0
 discord.py
-
+openai==0.28
+requests
