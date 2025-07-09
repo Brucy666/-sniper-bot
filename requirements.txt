@@ -1,2 +1,5 @@
 fastapi
 uvicorn
+fastapi
+openai
+discord.py
