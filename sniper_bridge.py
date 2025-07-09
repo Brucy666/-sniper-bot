@@ -45,7 +45,7 @@ response = client.chat.completions.create(
     ]
 )
 reply = response.choices[0].message.content
-    return {"status": "received", "gpt_response": reply}
+return {"status": "received", "gpt_response": reply}
 
 @app.get("/memory_status")
 async def memory_status():
