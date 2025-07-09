@@ -8,14 +8,14 @@ def get_bybit_price_vwap():
         "X-RapidAPI-Host": "coinalyze-api.p.rapidapi.com"
     }
 
-    params = {"symbol": "BYBIT:BTCUSD"}
+    params = {"symbol": "BYBIT:BTCUSDT"}  # 🛠️ Correct symbol format
 
     try:
         response = requests.get(url, headers=headers, params=params, timeout=5)
+        response.raise_for_status()  # Throw error on bad HTTP status
         data = response.json()
 
-        # Debug: print full data payload
-        print("🔍 Coinalyze API Raw Response:", data)
+        print("✅ Raw Coinalyze Data:", data)
 
         price = float(data["price"])
         vwap = float(data["vwap"])
