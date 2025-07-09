@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from pydantic import BaseModel
 import openai
 import os
@@ -6,7 +6,7 @@ import json
 from datetime import datetime
 
 app = FastAPI()
-openai.api_key = os.getenv("OPENAI_API_KEY")
+client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 MEMORY_FILE = "macro_risk_memory.json"
 
@@ -36,14 +36,14 @@ async def handle_webhook(payload: WebhookPayload):
     Based on sniper logic, provide a trade response, confidence score, and next action.
     """
 
-    response = openai.ChatCompletion.create(
+    response = client.chat.completions.create(
         model="gpt-4o",
         messages=[
             {"role": "system", "content": "You are a sniper trade engine."},
             {"role": "user", "content": message}
         ]
     )
-    reply = response['choices'][0]['message']['content']
+    reply = response.choices[0].message.content
     return {"status": "received", "gpt_response": reply}
 
 @app.get("/memory_status")
