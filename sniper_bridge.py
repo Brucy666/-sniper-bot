@@ -1,50 +1,30 @@
 import json
 import os
-import requests
 from datetime import datetime, timedelta
 import discord
 import asyncio
+from sniper_data import get_bybit_price_vwap
 
-# === Config ===
 MEMORY_FILE = "macro_risk_memory.json"
 STATUS_FILE = "sniper_status.json"
 DISCORD_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
 DISCORD_CHANNEL = "sniper-alerts"
 
-# === VWAP Fetch (Inlined)
-def get_bybit_price_vwap():
-    try:
-        url = "https://api.bybit.com/v2/public/tickers?symbol=BTCUSDT"
-        response = requests.get(url, timeout=5)
-        data = response.json()
-        ticker = data["result"][0]
-        price = float(ticker["last_price"])
-        vwap = float(ticker["prev_price_24h"])  # VWAP proxy
-        return price, vwap
-    except Exception as e:
-        print(f"[VWAP Fetch Error] {e}")
-        return None
-
-# === Macro Memory Reader ===
 def get_macro_risk():
     try:
         with open(MEMORY_FILE, "r") as f:
             data = json.load(f)
-
         if data.get("macro_risk_last_updated"):
             last = datetime.fromisoformat(data["macro_risk_last_updated"])
             now = datetime.utcnow()
             delta = now - last
-
             if data["macro_risk_score"] == "🔴 HIGH" and delta > timedelta(minutes=15):
                 print("⏱️ Risk decayed: 🔴 HIGH → 🟡 MEDIUM")
                 data["macro_risk_score"] = "🟡 MEDIUM"
             elif data["macro_risk_score"] == "🟡 MEDIUM" and delta > timedelta(minutes=15):
                 print("⏱️ Risk decayed: 🟡 MEDIUM → 🟢 LOW")
                 data["macro_risk_score"] = "🟢 LOW"
-
         return data
-
     except FileNotFoundError:
         print("[⚠️] No macro memory found. Returning default.")
         return {
@@ -53,7 +33,6 @@ def get_macro_risk():
             "macro_risk_last_updated": None
         }
 
-# === Sniper Overlay Print ===
 def print_terminal_overlay(score, tags, updated, base_conf, adjusted_conf, delay):
     print(f"""
 🧠 GPT Macro Memory Loaded
@@ -70,7 +49,6 @@ def print_terminal_overlay(score, tags, updated, base_conf, adjusted_conf, delay
 → Macro Overlay       : {"🟢 Clear" if not delay else "⚠️ Risk Pressure Active"}
 """)
 
-# === Status File Logic ===
 def save_status(status):
     with open(STATUS_FILE, "w") as f:
         json.dump({"status": status}, f)
@@ -82,7 +60,6 @@ def load_status():
     except:
         return "UNKNOWN"
 
-# === Discord Alert ===
 async def send_discord_alert(message):
     intents = discord.Intents.default()
     client = discord.Client(intents=intents)
@@ -93,7 +70,7 @@ async def send_discord_alert(message):
         if ch:
             await ch.send(message)
         await client.close()
-        await asyncio.sleep(1)  # prevent warning
+        await asyncio.sleep(1)
 
     await client.start(DISCORD_TOKEN)
 
@@ -102,22 +79,23 @@ base_confidence = 85
 sniper_confidence = base_confidence
 delay_entry = False
 
-# === VWAP/Price Logic
 try:
     result = get_bybit_price_vwap()
-    if result:
+    if result and isinstance(result, tuple):
         price, vwap = result
-        print(f"📈 Price: {price} | 📊 VWAP: {vwap}")
-        if price > vwap:
-            sniper_confidence += 5
-        elif price < vwap:
-            sniper_confidence -= 5
+        if price is not None and vwap is not None:
+            print(f"📈 Price: {price} | 📊 VWAP: {vwap}")
+            if price > vwap:
+                sniper_confidence += 5
+            elif price < vwap:
+                sniper_confidence -= 5
+        else:
+            print("❌ VWAP or price is None")
     else:
-        print("❌ Failed to fetch Bybit VWAP data.")
+        print("❌ Failed to fetch Bybit VWAP data (invalid format)")
 except Exception as e:
-    print(f"❌ Exception during VWAP fetch: {str(e)}")
+    print(f"[VWAP Fetch Error] {e}")
 
-# === Macro Risk Check
 risk = get_macro_risk()
 score = risk["macro_risk_score"]
 tags = risk["macro_risk_tags"]
@@ -129,21 +107,18 @@ if score == "🔴 HIGH":
 elif score == "🟡 MEDIUM":
     sniper_confidence -= 10
 
-# === Output
 print_terminal_overlay(score, tags, updated, base_confidence, sniper_confidence, delay_entry)
 
-# === Alert if status changes
 new_status = "BLOCKED" if delay_entry else "ALLOWED"
 old_status = load_status()
 
 if new_status != old_status:
     print(f"🔁 Sniper status changed: {old_status} → {new_status}")
     save_status(new_status)
-
-    alert_message = f"""
+    alert = f"""
 {'⚠️ **Sniper Entry Blocked**' if new_status == 'BLOCKED' else '🔓 **Sniper Entry Unlocked**'}
 → Macro Risk: {score}
 → Confidence: {sniper_confidence}%
 → {'Sniper suppressed by GPT defense layer' if new_status == 'BLOCKED' else 'All systems rearmed ✅'}
 """
-    asyncio.run(send_discord_alert(alert_message))
+    asyncio.run(send_discord_alert(alert))
