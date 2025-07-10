@@ -14,9 +14,10 @@ DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 DISCORD_CHANNEL = os.getenv("DISCORD_CHANNEL_ID", "sniper-alerts")
 
 app = FastAPI()
-client = discord.Client(intents=discord.Intents.default())
+intents = discord.Intents.default()
+client = discord.Client(intents=intents)
 
-# === Load/Save Memory ===
+# === Memory Handling ===
 def get_macro_risk():
     try:
         with open(MEMORY_FILE, "r") as f:
@@ -29,7 +30,7 @@ def get_macro_risk():
             elif data["macro_risk_score"] == "🟡 MEDIUM" and delta > timedelta(minutes=15):
                 data["macro_risk_score"] = "🟢 LOW"
         return data
-    except FileNotFoundError:
+    except:
         return {
             "macro_risk_score": "🟢 LOW",
             "macro_risk_tags": [],
@@ -54,10 +55,10 @@ async def send_discord_alert(message):
             await ch.send(message)
             break
 
-# === Sniper Core ===
+# === Sniper Core Logic ===
 def run_sniper_check(price, vwap):
-    base_conf = 85
-    conf = base_conf
+    base = 85
+    conf = base
     delay = False
 
     if price > vwap:
@@ -68,7 +69,6 @@ def run_sniper_check(price, vwap):
     risk = get_macro_risk()
     score = risk["macro_risk_score"]
     tags = risk["macro_risk_tags"]
-    updated = risk["macro_risk_last_updated"]
 
     if score == "🔴 HIGH":
         conf -= 25
@@ -90,31 +90,36 @@ def run_sniper_check(price, vwap):
 → {'Sniper suppressed by GPT defense layer' if new_status == 'BLOCKED' else 'All systems rearmed ✅'}
 """
         }
+
     return {"change": False}
 
-# === Alert Endpoint ===
+# === Webhook Endpoint ===
 @app.post("/alert/vwap")
 async def handle_alert(req: Request):
     try:
         payload = await req.json()
         price = float(payload.get("price"))
         vwap = float(payload.get("vwap"))
-        print(f"🚨 Received Alert | Price: {price}, VWAP: {vwap}")
-
+        print(f"📡 VWAP Alert Received | Price: {price}, VWAP: {vwap}")
         result = run_sniper_check(price, vwap)
         if result["change"]:
             await send_discord_alert(result["message"])
-        return {"status": "ok", "confidence": result}
+        return {"status": "ok"}
     except Exception as e:
-        print(f"[Alert Error] {e}")
+        print(f"[Webhook Error] {e}")
         return {"status": "error", "detail": str(e)}
 
-# === Launch Bot and Server ===
+# === Launch Bot + Server Together ===
 @client.event
 async def on_ready():
     print(f"✅ GPT Sniper Bridge Online as {client.user}")
 
-if __name__ == "__main__":
+def start():
     loop = asyncio.get_event_loop()
     loop.create_task(client.start(DISCORD_TOKEN))
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    config = uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="info")
+    server = uvicorn.Server(config)
+    loop.run_until_complete(server.serve())
+
+if __name__ == "__main__":
+    start()
