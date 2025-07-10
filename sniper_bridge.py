@@ -2,21 +2,23 @@
 
 import os
 import json
+import asyncio
 from datetime import datetime, timedelta
 from fastapi import FastAPI, Request
-import uvicorn
 import discord
-import asyncio
+import uvicorn
 
-MEMORY_FILE = "macro_risk_memory.json"
-STATUS_FILE = "sniper_status.json"
+# === ENV ===
 DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 DISCORD_CHANNEL = os.getenv("DISCORD_CHANNEL_ID", "sniper-alerts")
+MEMORY_FILE = "macro_risk_memory.json"
+STATUS_FILE = "sniper_status.json"
 
+# === FastAPI + Discord Setup ===
 app = FastAPI()
 discord_client = discord.Client(intents=discord.Intents.default())
 
-# === Load Macro Memory ===
+# === Risk & Status ===
 def get_macro_risk():
     try:
         with open(MEMORY_FILE, "r") as f:
@@ -29,16 +31,12 @@ def get_macro_risk():
             elif data["macro_risk_score"] == "🟡 MEDIUM" and delta > timedelta(minutes=15):
                 data["macro_risk_score"] = "🟢 LOW"
         return data
-    except FileNotFoundError:
+    except:
         return {
             "macro_risk_score": "🟢 LOW",
             "macro_risk_tags": [],
             "macro_risk_last_updated": None
         }
-
-def save_status(status):
-    with open(STATUS_FILE, "w") as f:
-        json.dump({"status": status}, f)
 
 def load_status():
     try:
@@ -47,15 +45,20 @@ def load_status():
     except:
         return "UNKNOWN"
 
-async def send_discord_alert(message):
+def save_status(status):
+    with open(STATUS_FILE, "w") as f:
+        json.dump({"status": status}, f)
+
+# === Discord Alert ===
+async def send_discord_alert(message: str):
     await discord_client.wait_until_ready()
-    for ch in discord_client.get_all_channels():
-        if ch.name == DISCORD_CHANNEL or str(ch.id) == DISCORD_CHANNEL:
-            await ch.send(message)
+    for channel in discord_client.get_all_channels():
+        if channel.name == DISCORD_CHANNEL or str(channel.id) == DISCORD_CHANNEL:
+            await channel.send(message)
             break
 
-# === Sniper Logic ===
-def run_sniper_check(price, vwap):
+# === Core Logic ===
+def run_sniper_check(price: float, vwap: float):
     base_conf = 85
     conf = base_conf
     delay = False
@@ -68,7 +71,6 @@ def run_sniper_check(price, vwap):
     risk = get_macro_risk()
     score = risk["macro_risk_score"]
     tags = risk["macro_risk_tags"]
-    updated = risk["macro_risk_last_updated"]
 
     if score == "🔴 HIGH":
         conf -= 25
@@ -90,18 +92,20 @@ def run_sniper_check(price, vwap):
 → {'Sniper suppressed by GPT defense layer' if new_status == 'BLOCKED' else 'All systems rearmed ✅'}
 """
         }
+
     return {"change": False}
 
 # === FastAPI Alert Endpoint ===
 @app.post("/alert/vwap")
-async def handle_alert(req: Request):
+async def handle_vwap(req: Request):
     try:
         payload = await req.json()
-        price = float(payload.get("price"))
-        vwap = float(payload.get("vwap"))
-        print(f"🚨 Received Alert | Price: {price}, VWAP: {vwap}")
+        price = float(payload["price"])
+        vwap = float(payload["vwap"])
+        print(f"✅ Received Alert | Price: {price}, VWAP: {vwap}")
 
         result = run_sniper_check(price, vwap)
+
         if result["change"]:
             await send_discord_alert(result["message"])
         return {"status": "ok", "confidence": result}
@@ -114,18 +118,12 @@ async def handle_alert(req: Request):
 async def on_ready():
     print(f"✅ GPT Sniper Bridge Online as {discord_client.user}")
 
-# === Main Start Function for Railway ===
+# === Launch Server on Railway ===
 def start():
     loop = asyncio.get_event_loop()
     loop.create_task(discord_client.start(DISCORD_TOKEN))
     uvicorn.run("sniper_bridge:app", host="0.0.0.0", port=8000, reload=False)
-    # === Discord Ready Event ===
-@discord_client.event
-async def on_ready():
-    print(f"✅ GPT Sniper Bridge Online as {discord_client.user}")
 
-# === Main Start Function for Railway ===
-def start():
-    loop = asyncio.get_event_loop()
-    loop.create_task(discord_client.start(DISCORD_TOKEN))
-    uvicorn.run("sniper_bridge:app", host="0.0.0.0", port=8000, reload=False)
+# Only run if local (not needed on Railway)
+if __name__ == "__main__":
+    start()
