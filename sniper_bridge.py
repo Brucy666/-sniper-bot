@@ -1,12 +1,10 @@
-# sniper_bridge.py
-
 import os
 import json
 from datetime import datetime, timedelta
 from fastapi import FastAPI, Request
-import uvicorn
 import discord
 import asyncio
+import uvicorn
 
 MEMORY_FILE = "macro_risk_memory.json"
 STATUS_FILE = "sniper_status.json"
@@ -17,7 +15,7 @@ app = FastAPI()
 intents = discord.Intents.default()
 client = discord.Client(intents=intents)
 
-# === Memory Handling ===
+# === Macro Risk ===
 def get_macro_risk():
     try:
         with open(MEMORY_FILE, "r") as f:
@@ -55,7 +53,7 @@ async def send_discord_alert(message):
             await ch.send(message)
             break
 
-# === Sniper Core Logic ===
+# === Sniper Logic ===
 def run_sniper_check(price, vwap):
     base = 85
     conf = base
@@ -68,7 +66,6 @@ def run_sniper_check(price, vwap):
 
     risk = get_macro_risk()
     score = risk["macro_risk_score"]
-    tags = risk["macro_risk_tags"]
 
     if score == "🔴 HIGH":
         conf -= 25
@@ -90,7 +87,6 @@ def run_sniper_check(price, vwap):
 → {'Sniper suppressed by GPT defense layer' if new_status == 'BLOCKED' else 'All systems rearmed ✅'}
 """
         }
-
     return {"change": False}
 
 # === Webhook Endpoint ===
@@ -100,19 +96,20 @@ async def handle_alert(req: Request):
         payload = await req.json()
         price = float(payload.get("price"))
         vwap = float(payload.get("vwap"))
-        print(f"📡 VWAP Alert Received | Price: {price}, VWAP: {vwap}")
+        print(f"📡 Alert Received | Price: {price} VWAP: {vwap}")
+
         result = run_sniper_check(price, vwap)
         if result["change"]:
             await send_discord_alert(result["message"])
         return {"status": "ok"}
     except Exception as e:
-        print(f"[Webhook Error] {e}")
+        print(f"[Alert Error] {e}")
         return {"status": "error", "detail": str(e)}
 
-# === Launch Bot + Server Together ===
+# === Startup ===
 @client.event
 async def on_ready():
-    print(f"✅ GPT Sniper Bridge Online as {client.user}")
+    print(f"✅ GPT Sniper Discord Bot is Live as {client.user}")
 
 def start():
     loop = asyncio.get_event_loop()
