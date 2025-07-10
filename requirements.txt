@@ -2,3 +2,5 @@ discord.py
 openai==0.28
 requests
 httpx
+fastapi
+uvicorn[standard]
