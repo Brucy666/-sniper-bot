@@ -1,3 +1,5 @@
+# sniper_bridge.py
+
 import os
 import json
 from datetime import datetime, timedelta
@@ -15,7 +17,7 @@ app = FastAPI()
 intents = discord.Intents.default()
 client = discord.Client(intents=intents)
 
-# === Macro Risk ===
+# === Load/Save Risk Memory ===
 def get_macro_risk():
     try:
         with open(MEMORY_FILE, "r") as f:
@@ -28,7 +30,7 @@ def get_macro_risk():
             elif data["macro_risk_score"] == "🟡 MEDIUM" and delta > timedelta(minutes=15):
                 data["macro_risk_score"] = "🟢 LOW"
         return data
-    except:
+    except FileNotFoundError:
         return {
             "macro_risk_score": "🟢 LOW",
             "macro_risk_tags": [],
@@ -53,10 +55,10 @@ async def send_discord_alert(message):
             await ch.send(message)
             break
 
-# === Sniper Logic ===
+# === Risk + VWAP Logic ===
 def run_sniper_check(price, vwap):
-    base = 85
-    conf = base
+    base_conf = 85
+    conf = base_conf
     delay = False
 
     if price > vwap:
@@ -96,27 +98,26 @@ async def handle_alert(req: Request):
         payload = await req.json()
         price = float(payload.get("price"))
         vwap = float(payload.get("vwap"))
-        print(f"📡 Alert Received | Price: {price} VWAP: {vwap}")
+        print(f"🚨 Incoming VWAP Alert | Price: {price} | VWAP: {vwap}")
 
         result = run_sniper_check(price, vwap)
         if result["change"]:
             await send_discord_alert(result["message"])
-        return {"status": "ok"}
+        return {"status": "ok", "confidence": result}
     except Exception as e:
-        print(f"[Alert Error] {e}")
+        print(f"[❌ Alert Error] {e}")
         return {"status": "error", "detail": str(e)}
 
-# === Startup ===
+# === Discord Ready Handler ===
 @client.event
 async def on_ready():
-    print(f"✅ GPT Sniper Discord Bot is Live as {client.user}")
+    print(f"✅ Sniper Bot Online as {client.user}")
 
+# === App Startup (for Railway) ===
 def start():
     loop = asyncio.get_event_loop()
     loop.create_task(client.start(DISCORD_TOKEN))
-    config = uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="info")
-    server = uvicorn.Server(config)
-    loop.run_until_complete(server.serve())
+    uvicorn.run(app, host="0.0.0.0", port=8000)
 
 if __name__ == "__main__":
     start()
