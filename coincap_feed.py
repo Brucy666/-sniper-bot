@@ -1,21 +1,25 @@
+# coincap_feed.py
+
 import requests
 import os
 
-def get_coincap_price_vwap():
-    url = "https://api.coincap.io/v2/assets/bitcoin"
-    headers = {
-        "Authorization": f"Bearer {os.environ.get('COINCAP_API_KEY')}"
-    }
+COINCAP_API_KEY = os.getenv("COINCAP_API_KEY")
+HEADERS = {
+    "Authorization": f"Bearer {COINCAP_API_KEY}"
+}
 
+def get_coincap_price_vwap():
     try:
-        response = requests.get(url, headers=headers)
-        response.raise_for_status()
+        # 🔁 This is the proper CoinCap asset name for Bitcoin
+        url = "https://api.coincap.io/v2/assets/bitcoin"
+        response = requests.get(url, headers=HEADERS)
         data = response.json()
 
         price = float(data["data"]["priceUsd"])
         vwap = float(data["data"]["vwap24Hr"])
 
         return price, vwap
+
     except Exception as e:
         print(f"[CoinCap Fetch Error] {e}")
-        return None
+        return None, None
