@@ -1,28 +1,32 @@
-import requests
+# coincap_feed.py
+
+import httpx
 import os
 
-def get_coincap_price_vwap():
-    """
-    Fetches current Bitcoin price and 24Hr VWAP from CoinCap API.
+COINCAP_API_KEY = os.environ.get("COINCAP_API_KEY")
+COINCAP_API_URL = "https://api.coincap.io/v2/assets/bitcoin"
 
-    Returns:
-        tuple: (price, vwap) as floats
-    """
-    url = "https://api.coincap.io/v2/assets/bitcoin"
-    headers = {
-        "Authorization": f"Bearer {os.environ.get('COINCAP_API_KEY', '')}"
-    }
+headers = {
+    "Authorization": f"Bearer {COINCAP_API_KEY}"
+}
 
-    try:
-        response = requests.get(url, headers=headers, timeout=5)
-        response.raise_for_status()
-        data = response.json().get("data", {})
+async def get_coincap_price_vwap():
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(COINCAP_API_URL, headers=headers)
+            response.raise_for_status()
+            data = response.json()["data"]
 
-        price = float(data.get("priceUsd", 0))
-        vwap = float(data.get("vwap24Hr", 0))
+            price = float(data["priceUsd"])
+            vwap = float(data["vwap24Hr"])
 
-        return price, vwap
+            return price, vwap
 
-    except Exception as e:
-        print(f"[CoinCap Fetch Error] {e}")
-        return None, None
+        except Exception as e:
+            print(f"[CoinCap Fetch Error] {e}")
+            return None, None
+
+def get_coincap_data():
+    import asyncio
+    price, vwap = asyncio.run(get_coincap_price_vwap())
+    return {"price": price, "vwap": vwap}
