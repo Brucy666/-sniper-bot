@@ -2,23 +2,21 @@
 
 import os
 import json
-import asyncio
 from datetime import datetime, timedelta
 from fastapi import FastAPI, Request
 import uvicorn
 import discord
+import asyncio
 
-# === ENV CONFIG ===
 MEMORY_FILE = "macro_risk_memory.json"
 STATUS_FILE = "sniper_status.json"
 DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 DISCORD_CHANNEL = os.getenv("DISCORD_CHANNEL_ID", "sniper-alerts")
 
-# === CORE SETUP ===
 app = FastAPI()
 client = discord.Client(intents=discord.Intents.default())
 
-# === LOAD / SAVE MEMORY ===
+# === Load/Save Memory ===
 def get_macro_risk():
     try:
         with open(MEMORY_FILE, "r") as f:
@@ -31,7 +29,7 @@ def get_macro_risk():
             elif data["macro_risk_score"] == "🟡 MEDIUM" and delta > timedelta(minutes=15):
                 data["macro_risk_score"] = "🟢 LOW"
         return data
-    except Exception:
+    except FileNotFoundError:
         return {
             "macro_risk_score": "🟢 LOW",
             "macro_risk_tags": [],
@@ -49,7 +47,6 @@ def load_status():
     except:
         return "UNKNOWN"
 
-# === DISCORD ALERT FUNCTION ===
 async def send_discord_alert(message):
     await client.wait_until_ready()
     for ch in client.get_all_channels():
@@ -57,10 +54,10 @@ async def send_discord_alert(message):
             await ch.send(message)
             break
 
-# === SNIPER LOGIC ===
+# === Sniper Core ===
 def run_sniper_check(price, vwap):
-    base = 85
-    conf = base
+    base_conf = 85
+    conf = base_conf
     delay = False
 
     if price > vwap:
@@ -95,32 +92,28 @@ def run_sniper_check(price, vwap):
         }
     return {"change": False}
 
-# === FASTAPI ROUTE ===
+# === Alert Endpoint ===
 @app.post("/alert/vwap")
-async def alert_vwap(req: Request):
+async def handle_alert(req: Request):
     try:
         payload = await req.json()
         price = float(payload.get("price"))
         vwap = float(payload.get("vwap"))
+        print(f"🚨 Received Alert | Price: {price}, VWAP: {vwap}")
 
-        print(f"🚨 Received VWAP Alert | Price: {price}, VWAP: {vwap}")
         result = run_sniper_check(price, vwap)
-
         if result["change"]:
             await send_discord_alert(result["message"])
-
         return {"status": "ok", "confidence": result}
-
     except Exception as e:
-        print(f"[Webhook Error] {e}")
+        print(f"[Alert Error] {e}")
         return {"status": "error", "detail": str(e)}
 
-# === DISCORD CLIENT READY ===
+# === Launch Bot and Server ===
 @client.event
 async def on_ready():
-    print(f"✅ GPT Sniper Online as {client.user}")
+    print(f"✅ GPT Sniper Bridge Online as {client.user}")
 
-# === RUN BOTH FASTAPI + DISCORD ===
 if __name__ == "__main__":
     loop = asyncio.get_event_loop()
     loop.create_task(client.start(DISCORD_TOKEN))
