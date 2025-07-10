@@ -1,8 +1,6 @@
 # coincap_feed.py
-
 import requests
 import os
-
 COINCAP_API_KEY = os.getenv("COINCAP_API_KEY")
 HEADERS = {
     "Authorization": f"Bearer {COINCAP_API_KEY}"
