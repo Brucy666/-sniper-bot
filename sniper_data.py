@@ -1,5 +1,4 @@
 import requests
-import os
 
 def get_bybit_price_vwap():
     api_key = "671f76e0-53d2-432b-a57a-afbd6d89fd48"
