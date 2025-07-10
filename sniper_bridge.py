@@ -3,7 +3,7 @@ import os
 from datetime import datetime, timedelta
 import discord
 import asyncio
-from coincap_feed import get_coincap_price_vwap  # NEW: using CoinCap
+from sniper_data import get_bybit_price_vwap
 
 # === Config ===
 MEMORY_FILE = "macro_risk_memory.json"
