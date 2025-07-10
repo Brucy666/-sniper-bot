@@ -3,7 +3,7 @@ import os
 from datetime import datetime, timedelta
 import discord
 import asyncio
-from coincap_feed import get_coincap_price_vwap  # ✅ NEW: using CoinCap
+from coincap_feed import get_coincap_data
 
 MEMORY_FILE = "macro_risk_memory.json"
 STATUS_FILE = "sniper_status.json"
