@@ -1,15 +1,30 @@
+# sniper_bridge.py
+
 import json
 import os
-from datetime import datetime, timedelta
-import discord
 import asyncio
-from coincap_feed import get_coincap_data  # 🔄 Updated source
+from datetime import datetime, timedelta
+from fastapi import FastAPI
+from pydantic import BaseModel
+import discord
 
+# === Setup ===
 MEMORY_FILE = "macro_risk_memory.json"
 STATUS_FILE = "sniper_status.json"
-DISCORD_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
+DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN", "")
 DISCORD_CHANNEL = "sniper-alerts"
 
+app = FastAPI()
+
+# === Input Model from TradingView Webhook ===
+class TradingViewAlert(BaseModel):
+    event: str
+    price: float | None = None
+    trigger: str | None = None
+    rsi: float | None = None
+    notes: str | None = None
+
+# === Macro Memory Logic ===
 def get_macro_risk():
     try:
         with open(MEMORY_FILE, "r") as f:
@@ -26,13 +41,13 @@ def get_macro_risk():
                 data["macro_risk_score"] = "🟢 LOW"
         return data
     except FileNotFoundError:
-        print("[⚠️] No macro memory found. Returning default.")
         return {
             "macro_risk_score": "🟢 LOW",
             "macro_risk_tags": [],
             "macro_risk_last_updated": None
         }
 
+# === Terminal Overlay ===
 def print_terminal_overlay(score, tags, updated, base_conf, adjusted_conf, delay):
     print(f"""
 🧠 GPT Macro Memory Loaded
@@ -45,22 +60,12 @@ def print_terminal_overlay(score, tags, updated, base_conf, adjusted_conf, delay
 ────────────────────────────
 → Base Confidence     : {base_conf}%
 → Adjusted Confidence : {adjusted_conf}%
-→ Entry Delayed       : {"❌ No" if not delay else "✅ Yes"}
-→ Macro Overlay       : {"🟢 Clear" if not delay else "⚠️ Risk Pressure Active"}
+→ Entry Delayed       : {"✅ Yes" if delay else "❌ No"}
+→ Macro Overlay       : {"⚠️ Risk Pressure Active" if delay else "🟢 Clear"}
 """)
 
-def save_status(status):
-    with open(STATUS_FILE, "w") as f:
-        json.dump({"status": status}, f)
-
-def load_status():
-    try:
-        with open(STATUS_FILE, "r") as f:
-            return json.load(f).get("status", "UNKNOWN")
-    except:
-        return "UNKNOWN"
-
-async def send_discord_alert(message):
+# === Discord Alert ===
+async def send_discord_alert(message: str):
     intents = discord.Intents.default()
     client = discord.Client(intents=intents)
 
@@ -74,50 +79,63 @@ async def send_discord_alert(message):
 
     await client.start(DISCORD_TOKEN)
 
-# === Core Logic ===
-base_confidence = 85
-sniper_confidence = base_confidence
-delay_entry = False
+def save_status(status):
+    with open(STATUS_FILE, "w") as f:
+        json.dump({"status": status}, f)
 
-try:
-    result = get_coincap_data()
-    price = result["price"]
-    vwap = result["vwap"]
+def load_status():
+    try:
+        with open(STATUS_FILE, "r") as f:
+            return json.load(f).get("status", "UNKNOWN")
+    except:
+        return "UNKNOWN"
 
-    if price is not None and vwap is not None:
-        print(f"📈 Price: {price} | 📊 VWAP: {vwap}")
-        if price > vwap:
-            sniper_confidence += 5
-        elif price < vwap:
-            sniper_confidence -= 5
-    else:
-        print("❌ VWAP or price is None")
-except Exception as e:
-    print(f"[VWAP Fetch Error] {e}")
+# === Webhook Handler ===
+@app.post("/webhook")
+async def handle_alert(alert: TradingViewAlert):
+    print(f"🚨 Received Alert: {alert.event} | Price: {alert.price} | RSI: {alert.rsi}")
 
-risk = get_macro_risk()
-score = risk["macro_risk_score"]
-tags = risk["macro_risk_tags"]
-updated = risk["macro_risk_last_updated"]
+    # === Confidence Logic ===
+    base_conf = 85
+    confidence = base_conf
+    delay = False
 
-if score == "🔴 HIGH":
-    sniper_confidence -= 25
-    delay_entry = True
-elif score == "🟡 MEDIUM":
-    sniper_confidence -= 10
+    # Macro Risk Score
+    macro = get_macro_risk()
+    score = macro["macro_risk_score"]
+    tags = macro["macro_risk_tags"]
+    updated = macro["macro_risk_last_updated"]
 
-print_terminal_overlay(score, tags, updated, base_confidence, sniper_confidence, delay_entry)
+    if score == "🔴 HIGH":
+        confidence -= 25
+        delay = True
+    elif score == "🟡 MEDIUM":
+        confidence -= 10
 
-new_status = "BLOCKED" if delay_entry else "ALLOWED"
-old_status = load_status()
+    print_terminal_overlay(score, tags, updated, base_conf, confidence, delay)
 
-if new_status != old_status:
-    print(f"🔁 Sniper status changed: {old_status} → {new_status}")
-    save_status(new_status)
-    alert = f"""
+    # === Sniper Status Tracking ===
+    new_status = "BLOCKED" if delay else "ALLOWED"
+    old_status = load_status()
+
+    if new_status != old_status:
+        save_status(new_status)
+        message = f"""
 {'⚠️ **Sniper Entry Blocked**' if new_status == 'BLOCKED' else '🔓 **Sniper Entry Unlocked**'}
 → Macro Risk: {score}
-→ Confidence: {sniper_confidence}%
+→ Confidence: {confidence}%
 → {'Sniper suppressed by GPT defense layer' if new_status == 'BLOCKED' else 'All systems rearmed ✅'}
 """
-    asyncio.run(send_discord_alert(alert))
+        await send_discord_alert(message)
+
+    # === Final Webhook Response ===
+    return {
+        "status": "ok",
+        "confidence": confidence,
+        "entry_allowed": not delay
+    }
+
+# === Run Locally ===
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("sniper_bridge:app", host="0.0.0.0", port=8000, reload=True)
