@@ -3,14 +3,13 @@ import os
 from datetime import datetime, timedelta
 import discord
 import asyncio
-from coincap_feed import get_coincap_data
+from coincap_feed import get_coincap_data  # 🔄 Updated source
 
 MEMORY_FILE = "macro_risk_memory.json"
 STATUS_FILE = "sniper_status.json"
 DISCORD_TOKEN = os.environ.get("DISCORD_BOT_TOKEN", "")
 DISCORD_CHANNEL = "sniper-alerts"
 
-# === Risk Memory Logic ===
 def get_macro_risk():
     try:
         with open(MEMORY_FILE, "r") as f:
@@ -81,19 +80,18 @@ sniper_confidence = base_confidence
 delay_entry = False
 
 try:
-    result = get_coincap_price_vwap()
-    if result and isinstance(result, tuple):
-        price, vwap = result
-        if price is not None and vwap is not None:
-            print(f"📈 Price: {price} | 📊 VWAP: {vwap}")
-            if price > vwap:
-                sniper_confidence += 5
-            elif price < vwap:
-                sniper_confidence -= 5
-        else:
-            print("❌ VWAP or price is None")
+    result = get_coincap_data()
+    price = result["price"]
+    vwap = result["vwap"]
+
+    if price is not None and vwap is not None:
+        print(f"📈 Price: {price} | 📊 VWAP: {vwap}")
+        if price > vwap:
+            sniper_confidence += 5
+        elif price < vwap:
+            sniper_confidence -= 5
     else:
-        print("❌ Failed to fetch CoinCap VWAP data (invalid format)")
+        print("❌ VWAP or price is None")
 except Exception as e:
     print(f"[VWAP Fetch Error] {e}")
 
