@@ -1,25 +1,22 @@
- # sniper_bridge.py
+# sniper_bridge.py
 
 import os
 import json
 from datetime import datetime, timedelta
 from fastapi import FastAPI, Request
+import uvicorn
 import discord
 import asyncio
 
 MEMORY_FILE = "macro_risk_memory.json"
 STATUS_FILE = "sniper_status.json"
-
 DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 DISCORD_CHANNEL = os.getenv("DISCORD_CHANNEL_ID", "sniper-alerts")
 
-# === FastAPI app ===
 app = FastAPI()
-
-# === Discord Client ===
 discord_client = discord.Client(intents=discord.Intents.default())
 
-# === Risk Memory ===
+# === Load Macro Memory ===
 def get_macro_risk():
     try:
         with open(MEMORY_FILE, "r") as f:
@@ -59,11 +56,20 @@ async def send_discord_alert(message):
 
 # === Sniper Logic ===
 def run_sniper_check(price, vwap):
-    base = 85
-    score = get_macro_risk()["macro_risk_score"]
+    base_conf = 85
+    conf = base_conf
     delay = False
 
-    conf = base + 5 if price > vwap else base - 5
+    if price > vwap:
+        conf += 5
+    elif price < vwap:
+        conf -= 5
+
+    risk = get_macro_risk()
+    score = risk["macro_risk_score"]
+    tags = risk["macro_risk_tags"]
+    updated = risk["macro_risk_last_updated"]
+
     if score == "🔴 HIGH":
         conf -= 25
         delay = True
@@ -72,6 +78,7 @@ def run_sniper_check(price, vwap):
 
     new_status = "BLOCKED" if delay else "ALLOWED"
     old_status = load_status()
+
     if new_status != old_status:
         save_status(new_status)
         return {
@@ -85,31 +92,30 @@ def run_sniper_check(price, vwap):
         }
     return {"change": False}
 
-# === API Endpoint ===
+# === FastAPI Alert Endpoint ===
 @app.post("/alert/vwap")
 async def handle_alert(req: Request):
     try:
         payload = await req.json()
         price = float(payload.get("price"))
         vwap = float(payload.get("vwap"))
-        print(f"🚨 Alert received | Price: {price} | VWAP: {vwap}")
+        print(f"🚨 Received Alert | Price: {price}, VWAP: {vwap}")
 
         result = run_sniper_check(price, vwap)
         if result["change"]:
             await send_discord_alert(result["message"])
-        return {"status": "ok", "result": result}
+        return {"status": "ok", "confidence": result}
     except Exception as e:
-        print(f"[Webhook Error] {e}")
+        print(f"[Alert Error] {e}")
         return {"status": "error", "detail": str(e)}
 
-# === Launch Discord client only ===
+# === Discord Ready Event ===
 @discord_client.event
 async def on_ready():
-    print(f"✅ Discord bot ready as {discord_client.user}")
+    print(f"✅ GPT Sniper Bridge Online as {discord_client.user}")
 
-# === ENTRYPOINT ===
+# === Main Start Function for Railway ===
 def start():
-    import uvicorn
     loop = asyncio.get_event_loop()
     loop.create_task(discord_client.start(DISCORD_TOKEN))
     uvicorn.run("sniper_bridge:app", host="0.0.0.0", port=8000, reload=False)
