@@ -119,3 +119,13 @@ def start():
     loop = asyncio.get_event_loop()
     loop.create_task(discord_client.start(DISCORD_TOKEN))
     uvicorn.run("sniper_bridge:app", host="0.0.0.0", port=8000, reload=False)
+    # === Discord Ready Event ===
+@discord_client.event
+async def on_ready():
+    print(f"✅ GPT Sniper Bridge Online as {discord_client.user}")
+
+# === Main Start Function for Railway ===
+def start():
+    loop = asyncio.get_event_loop()
+    loop.create_task(discord_client.start(DISCORD_TOKEN))
+    uvicorn.run("sniper_bridge:app", host="0.0.0.0", port=8000, reload=False)
